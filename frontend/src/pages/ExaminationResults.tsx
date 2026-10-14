@@ -1,0 +1,811 @@
+import React, { useEffect, useState } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import {
+  Shield,
+  FileCheck,
+  Download,
+  FileText,
+  Copy,
+  Check,
+  AlertTriangle,
+  Layers,
+  Sliders,
+  UserCheck,
+  Clock,
+  RefreshCw,
+  ChevronDown,
+  ChevronUp,
+  Info,
+} from 'lucide-react';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  CartesianGrid,
+  Legend,
+} from 'recharts';
+
+import { api } from '../services/api';
+import type { ExaminationDetail, IntegrityCheckResult } from '../types/examination';
+import { IndicatorBadge, ReviewBadge } from '../components/StatusBadge';
+
+export const ExaminationResults: React.FC = () => {
+  const { id } = useParams<{ id: string }>();
+
+  const [exam, setExam] = useState<ExaminationDetail | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Integrity Check State
+  const [checkingIntegrity, setCheckingIntegrity] = useState<boolean>(false);
+  const [integrityResult, setIntegrityResult] = useState<IntegrityCheckResult | null>(null);
+  const [copiedHash, setCopiedHash] = useState<boolean>(false);
+
+  // Visual Laboratory Controls
+  const [activeVisTab, setActiveVisTab] = useState<'side_by_side' | 'blend' | 'channels'>('side_by_side');
+  const [blendOpacity, setBlendOpacity] = useState<number>(60);
+
+  // Human Review Form State
+  const [reviewerName, setReviewerName] = useState<string>('');
+  const [reviewerDesignation, setReviewerDesignation] = useState<string>('');
+  const [reviewerOrganization, setReviewerOrganization] = useState<string>('SCSS Forensic Laboratory');
+  const [reviewDecision, setReviewDecision] = useState<string>('reviewed_no_indicators');
+  const [reviewNotes, setReviewNotes] = useState<string>('');
+  const [reviewAttestation, setReviewAttestation] = useState<boolean>(false);
+  const [submittingReview, setSubmittingReview] = useState<boolean>(false);
+  const [reviewSuccessMsg, setReviewSuccessMsg] = useState<string | null>(null);
+
+  // Collapsible Sections
+  const [metadataOpen, setMetadataOpen] = useState<boolean>(false);
+  const [auditLogOpen, setAuditLogOpen] = useState<boolean>(false);
+
+  const loadData = async () => {
+    if (!id) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await api.getExamination(id);
+      setExam(data);
+      if (data.human_review) {
+        setReviewerName(data.human_review.reviewer_name || '');
+        setReviewerDesignation(data.human_review.reviewer_designation || '');
+        setReviewerOrganization(data.human_review.reviewer_organization || 'SCSS Forensic Laboratory');
+        setReviewDecision(data.human_review.status !== 'pending' ? data.human_review.status : 'reviewed_no_indicators');
+        setReviewNotes(data.human_review.notes || '');
+        setReviewAttestation(data.human_review.attestation || false);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to retrieve examination record');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, [id]);
+
+  const handleCopyHash = () => {
+    if (!exam) return;
+    navigator.clipboard.writeText(exam.file_integrity.digest);
+    setCopiedHash(true);
+    setTimeout(() => setCopiedHash(false), 2000);
+  };
+
+  const handleRunIntegrityCheck = async () => {
+    if (!id) return;
+    setCheckingIntegrity(true);
+    try {
+      const res = await api.checkIntegrity(id);
+      setIntegrityResult(res);
+      // Reload examination data to update activity event log
+      const updated = await api.getExamination(id);
+      setExam(updated);
+    } catch (err: any) {
+      alert(err.message || 'Integrity check failed');
+    } finally {
+      setCheckingIntegrity(false);
+    }
+  };
+
+  const handleReviewSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!id || !exam) return;
+
+    if (!reviewAttestation) {
+      alert('Examiner attestation checkbox must be confirmed.');
+      return;
+    }
+
+    setSubmittingReview(true);
+    setReviewSuccessMsg(null);
+    try {
+      const updated = await api.submitReview(id, {
+        reviewer_name: reviewerName,
+        reviewer_designation: reviewerDesignation,
+        reviewer_organization: reviewerOrganization,
+        decision: reviewDecision,
+        notes: reviewNotes,
+        attestation: reviewAttestation,
+      });
+      setExam(updated);
+      setReviewSuccessMsg('Forensic review record attested and recorded successfully.');
+      setTimeout(() => setReviewSuccessMsg(null), 4000);
+    } catch (err: any) {
+      alert(err.message || 'Failed to record human review');
+    } finally {
+      setSubmittingReview(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="py-24 text-center space-y-3">
+        <div className="w-8 h-8 border-2 border-[#0F1E36] border-t-[#C5A059] rounded-full animate-spin mx-auto" />
+        <p className="text-xs text-slate-500 font-mono">Loading examination record {id}...</p>
+      </div>
+    );
+  }
+
+  if (error || !exam) {
+    return (
+      <div className="max-w-2xl mx-auto py-12 text-center space-y-4">
+        <div className="p-4 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-lg">
+          {error || 'Examination record could not be found.'}
+        </div>
+        <Link
+          to="/"
+          className="inline-flex items-center gap-2 text-xs font-semibold text-[#0F1E36] hover:underline"
+        >
+          Return to Dashboard
+        </Link>
+      </div>
+    );
+  }
+
+  // Channel Analytics data for Recharts
+  const channelData = exam.artifacts?.channel_analytics
+    ? [
+        {
+          name: 'Red Channel',
+          Mean: exam.artifacts.channel_analytics.red?.mean ?? 0,
+          StdDev: exam.artifacts.channel_analytics.red?.std ?? 0,
+        },
+        {
+          name: 'Green Channel',
+          Mean: exam.artifacts.channel_analytics.green?.mean ?? 0,
+          StdDev: exam.artifacts.channel_analytics.green?.std ?? 0,
+        },
+        {
+          name: 'Blue Channel',
+          Mean: exam.artifacts.channel_analytics.blue?.mean ?? 0,
+          StdDev: exam.artifacts.channel_analytics.blue?.std ?? 0,
+        },
+      ]
+    : [];
+
+  const originalImgUrl = api.getImageUrl(exam.examination_id);
+  const elaArtifact = exam.artifacts?.ela_heatmap;
+  const elaImgUrl = elaArtifact ? api.getVisualizationUrl(exam.examination_id, 'ela_heatmap') : null;
+
+  return (
+    <div className="space-y-6">
+      {/* 1. Examination Header & Overview */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-200">
+          <div>
+            <div className="flex items-center space-x-2 text-xs text-slate-500 font-mono mb-1">
+              <span>Case ID:</span>
+              <strong className="text-slate-800 text-sm">{exam.examination_id}</strong>
+              <span>•</span>
+              <span>Pipeline: v{exam.analysis_pipeline_version}</span>
+            </div>
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
+              <span>{exam.original_filename}</span>
+            </h1>
+          </div>
+
+          {/* Action Buttons: Reports & Inspection */}
+          <div className="flex flex-wrap items-center gap-2">
+            <a
+              href={api.getReportPdfUrl(exam.examination_id)}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 bg-[#0F1E36] hover:bg-[#162a4d] text-white text-xs font-medium px-3.5 py-2 rounded-lg shadow-xs transition-colors"
+            >
+              <Download className="w-3.5 h-3.5 text-[#C5A059]" />
+              <span>Download PDF Report</span>
+            </a>
+            <a
+              href={api.getReportJsonUrl(exam.examination_id)}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium px-3.5 py-2 rounded-lg border border-slate-200 transition-colors"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>JSON Data</span>
+            </a>
+          </div>
+        </div>
+
+        {/* 2. Evidence File Information Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-4 text-xs">
+          <div>
+            <span className="text-slate-400 block">File Size & Media Type</span>
+            <span className="font-semibold text-slate-800">
+              {(exam.file_size_bytes / 1024).toFixed(1)} KB • {exam.detected_media_type}
+            </span>
+          </div>
+          <div>
+            <span className="text-slate-400 block">Pixel Geometry & Color</span>
+            <span className="font-semibold text-slate-800">
+              {exam.image_width} × {exam.image_height} px ({exam.color_mode})
+            </span>
+          </div>
+          <div>
+            <span className="text-slate-400 block">Ingestion Timestamp</span>
+            <span className="font-semibold text-slate-800">
+              {new Date(exam.upload_timestamp).toLocaleString('en-US', { timeZone: 'UTC', hour12: false })} UTC
+            </span>
+          </div>
+          <div>
+            <span className="text-slate-400 block">Human Review Status</span>
+            <div className="mt-0.5">
+              <ReviewBadge status={exam.human_review_status} size="sm" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Statutory Disclaimer Alert */}
+      <div className="bg-amber-50/70 border-l-4 border-[#C5A059] p-3.5 rounded-r-lg text-xs text-amber-900 leading-relaxed flex items-start gap-2.5">
+        <Info className="w-4 h-4 text-[#C5A059] shrink-0 mt-0.5" />
+        <div>
+          <strong className="font-semibold">Preliminary Automated Screening:</strong> Automated indicators do not
+          constitute legal proof or definitive determination of authenticity. Findings require manual corroboration by a
+          qualified examiner.
+        </div>
+      </div>
+
+      {/* 3. Cryptographic SHA-256 Evidence Integrity Record Card */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex items-center space-x-2">
+            <Shield className="w-5 h-5 text-[#0F1E36]" />
+            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">
+              Evidence Bitstream Integrity (SHA-256)
+            </h2>
+          </div>
+          <button
+            onClick={handleRunIntegrityCheck}
+            disabled={checkingIntegrity}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0F1E36] hover:text-[#C5A059] bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-md border border-slate-200 transition-colors"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${checkingIntegrity ? 'animate-spin' : ''}`} />
+            <span>{checkingIntegrity ? 'Recomputing Digest...' : 'Verify Vault Bitstream'}</span>
+          </button>
+        </div>
+
+        <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+          <div className="font-mono text-xs text-slate-700 break-all select-all">
+            <span className="text-slate-400 select-none mr-2">SHA-256:</span>
+            <strong>{exam.file_integrity.digest}</strong>
+          </div>
+          <button
+            onClick={handleCopyHash}
+            className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 hover:text-slate-900 bg-white border border-slate-300 px-2.5 py-1 rounded shadow-2xs shrink-0"
+            title="Copy SHA-256 hash"
+          >
+            {copiedHash ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+            <span>{copiedHash ? 'Copied' : 'Copy Hash'}</span>
+          </button>
+        </div>
+
+        {integrityResult && (
+          <div
+            className={`p-3 rounded-lg text-xs border flex items-start gap-2 ${
+              integrityResult.match
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                : 'bg-rose-50 border-rose-200 text-rose-800'
+            }`}
+          >
+            {integrityResult.match ? (
+              <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+            ) : (
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+            )}
+            <div className="leading-relaxed">
+              <strong>{integrityResult.status}:</strong> {integrityResult.message}
+              <div className="text-[11px] text-slate-500 font-mono mt-0.5">
+                Recomputed at {new Date(integrityResult.checked_at).toLocaleTimeString()} UTC • Recomputed: {integrityResult.recomputed_digest}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <p className="text-[11px] text-slate-500 leading-normal">
+          Cryptographic hashes establish a tamper-evident reference to detect bit-level alteration in storage.
+          A matching hash confirms that stored bytes remain identical to upload, but does not prove the original scene was genuine.
+        </p>
+      </div>
+
+      {/* 4. Visual Laboratory & Examination Workspace */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
+          <div className="flex items-center space-x-2">
+            <Layers className="w-5 h-5 text-[#0F1E36]" />
+            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">
+              Visual Laboratory Inspection
+            </h2>
+          </div>
+
+          {/* View Mode Selector */}
+          <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-lg text-xs font-medium">
+            <button
+              onClick={() => setActiveVisTab('side_by_side')}
+              className={`px-3 py-1 rounded transition-colors ${
+                activeVisTab === 'side_by_side' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Side-by-Side Exhibits
+            </button>
+            <button
+              onClick={() => setActiveVisTab('blend')}
+              disabled={!elaImgUrl}
+              className={`px-3 py-1 rounded transition-colors ${
+                !elaImgUrl
+                  ? 'opacity-40 cursor-not-allowed text-slate-400'
+                  : activeVisTab === 'blend'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              ELA Blend Overlay
+            </button>
+            <button
+              onClick={() => setActiveVisTab('channels')}
+              className={`px-3 py-1 rounded transition-colors ${
+                activeVisTab === 'channels' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Color Balance Metrics
+            </button>
+          </div>
+        </div>
+
+        {/* View 1: Side by Side Exhibits */}
+        {activeVisTab === 'side_by_side' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
+                <span>Exhibit A: Original Evidence Bitstream</span>
+                <span className="text-slate-400 font-mono">RGB Source</span>
+              </div>
+              <div className="aspect-4/3 bg-slate-950 rounded-lg overflow-hidden border border-slate-300 flex items-center justify-center p-2">
+                <img
+                  src={originalImgUrl}
+                  alt="Original Evidence"
+                  className="max-h-full max-w-full object-contain"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
+                <span>Exhibit B: Error Level Analysis (ELA) Heatmap</span>
+                <span className="text-slate-400 font-mono">
+                  {elaImgUrl ? 'Q=90 Amplified' : 'Not Applicable (PNG/Lossless)'}
+                </span>
+              </div>
+              <div className="aspect-4/3 bg-slate-950 rounded-lg overflow-hidden border border-slate-300 flex items-center justify-center p-2">
+                {elaImgUrl ? (
+                  <img
+                    src={elaImgUrl}
+                    alt="ELA Heatmap"
+                    className="max-h-full max-w-full object-contain"
+                  />
+                ) : (
+                  <div className="text-center p-6 text-slate-400 text-xs">
+                    <p className="font-semibold text-slate-300 mb-1">ELA Unavailable for {exam.detected_media_type}</p>
+                    <p className="text-[11px] text-slate-500 max-w-xs">
+                      Error Level Analysis requires lossy discrete cosine transform (DCT) JPEG quantization grids.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* View 2: Blend Opacity Slider */}
+        {activeVisTab === 'blend' && elaImgUrl && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs">
+              <div className="flex items-center space-x-2 text-slate-700 font-medium">
+                <Sliders className="w-4 h-4 text-[#C5A059]" />
+                <span>ELA Heatmap Blend Opacity:</span>
+                <span className="font-mono font-bold text-slate-900">{blendOpacity}%</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={blendOpacity}
+                onChange={(e) => setBlendOpacity(Number(e.target.value))}
+                className="w-48 sm:w-64 accent-[#0F1E36]"
+              />
+            </div>
+
+            <div className="relative aspect-video max-h-[500px] bg-slate-950 rounded-lg overflow-hidden border border-slate-300 flex items-center justify-center mx-auto">
+              {/* Base Original */}
+              <img
+                src={originalImgUrl}
+                alt="Original"
+                className="max-h-full max-w-full object-contain"
+              />
+              {/* Overlay ELA with Opacity */}
+              <img
+                src={elaImgUrl}
+                alt="ELA Overlay"
+                style={{ opacity: blendOpacity / 100 }}
+                className="absolute inset-0 m-auto max-h-full max-w-full object-contain pointer-events-none mix-blend-screen"
+              />
+            </div>
+            <p className="text-center text-[11px] text-slate-500">
+              Drag slider to correlate bright compression residual boundaries directly over physical objects in the image.
+            </p>
+          </div>
+        )}
+
+        {/* View 3: Color Channel Analytics (Recharts) */}
+        {activeVisTab === 'channels' && (
+          <div className="space-y-4">
+            <div className="h-64 w-full bg-slate-50 p-4 rounded-lg border border-slate-200">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={channelData} margin={{ top: 10, right: 20, left: 0, bottom: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#CBD5E1" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#475569' }} />
+                  <YAxis domain={[0, 255]} tick={{ fontSize: 11, fill: '#475569' }} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#0F1E36', color: '#fff', borderRadius: '6px', fontSize: '11px' }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: '11px' }} />
+                  <Bar dataKey="Mean" fill="#0F1E36" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="StdDev" fill="#C5A059" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <p className="text-xs text-slate-500 text-center">
+              Evaluates color channel saturation and dynamic range distribution across 8-bit RGB channels.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* 5. Screening Tests & Individual Results */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 space-y-4">
+        <div className="flex items-center space-x-2 border-b border-slate-200 pb-3">
+          <FileCheck className="w-5 h-5 text-[#0F1E36]" />
+          <div>
+            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">
+              Automated Screening Tests & Technical Findings
+            </h2>
+            <p className="text-xs text-slate-500">
+              Methodological results executed under analysis pipeline v{exam.analysis_pipeline_version}
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          {exam.tests.map((test, index) => (
+            <div
+              key={test.method}
+              className="border border-slate-200 rounded-lg p-4 bg-slate-50/50 space-y-3"
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/80 pb-2">
+                <div>
+                  <span className="text-xs font-semibold text-slate-900">
+                    Test {index + 1}: {test.method.replace(/_/g, ' ').toUpperCase()}
+                  </span>
+                  <span className="text-[11px] text-slate-400 font-mono ml-2">v{test.version}</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <IndicatorBadge indicator={test.indicator} label={test.indicator_label} />
+                  <span className="text-[11px] text-slate-400 font-mono">{test.execution_time_ms} ms</span>
+                </div>
+              </div>
+
+              {/* Technical Explanation */}
+              <div className="text-xs text-slate-700 leading-relaxed bg-white p-3 rounded border border-slate-200/60">
+                <strong className="text-slate-900 block mb-1">Technical Finding:</strong>
+                {test.explanation}
+              </div>
+
+              {/* Observations Checklist */}
+              {test.observations.length > 0 && (
+                <div className="space-y-1">
+                  <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">
+                    Observations Recorded:
+                  </span>
+                  <ul className="text-xs text-slate-600 space-y-1 list-disc list-inside">
+                    {test.observations.map((obs, oIdx) => (
+                      <li key={oIdx}>{obs}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Method Limitations */}
+              {test.limitations.length > 0 && (
+                <div className="text-[11px] text-slate-500 bg-slate-100/80 p-2.5 rounded border border-slate-200/80 space-y-0.5">
+                  <span className="font-semibold text-slate-600 block">Method Limitations:</span>
+                  <ul className="list-disc list-inside space-y-0.5">
+                    {test.limitations.map((lim, lIdx) => (
+                      <li key={lIdx}>{lim}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 6. Extracted Metadata Drawer (Collapsible) */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+        <button
+          onClick={() => setMetadataOpen(!metadataOpen)}
+          className="w-full px-6 py-4 flex items-center justify-between text-left hover:bg-slate-50 transition-colors"
+        >
+          <div className="flex items-center space-x-2">
+            <FileText className="w-5 h-5 text-[#0F1E36]" />
+            <div>
+              <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">
+                Extracted EXIF & Image Header Metadata
+              </h2>
+              <p className="text-xs text-slate-500">
+                {Object.keys(exam.extracted_metadata).length} tags extracted • Treated as untrusted & potentially editable
+              </p>
+            </div>
+          </div>
+          {metadataOpen ? <ChevronUp className="w-5 h-5 text-slate-400" /> : <ChevronDown className="w-5 h-5 text-slate-400" />}
+        </button>
+
+        {metadataOpen && (
+          <div className="px-6 pb-6 pt-2 border-t border-slate-200 space-y-3">
+            {Object.keys(exam.extracted_metadata).length === 0 ? (
+              <p className="text-xs text-slate-500 italic p-4 text-center">
+                No EXIF tags found in image header. Metadata was stripped or absent at ingestion.
+              </p>
+            ) : (
+              <div className="max-h-72 overflow-y-auto border border-slate-200 rounded-lg">
+                <table className="min-w-full divide-y divide-slate-200 text-xs text-left">
+                  <thead className="bg-slate-50 text-slate-600 font-semibold sticky top-0">
+                    <tr>
+                      <th className="px-4 py-2 w-1/3">Tag Name</th>
+                      <th className="px-4 py-2">Parsed Value</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-mono">
+                    {Object.entries(exam.extracted_metadata).map(([tag, val]) => (
+                      <tr key={tag} className="hover:bg-slate-50">
+                        <td className="px-4 py-2 text-slate-700 font-medium">{tag}</td>
+                        <td className="px-4 py-2 text-slate-600 break-all">{String(val)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <p className="text-[11px] text-slate-500">
+              Note: Exact GPS coordinates are redacted in automated overviews for privacy. Metadata absence or modification is not conclusive proof of tampering.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* 7. Suggested Manual Forensic Review Steps & Methodological Limitations */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 space-y-3">
+          <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
+            <Check className="w-4 h-4 text-emerald-600" />
+            <span>Recommended Manual Checks</span>
+          </h2>
+          <ul className="text-xs text-slate-600 space-y-2 list-disc list-inside leading-relaxed">
+            {exam.suggested_manual_checks.map((check, idx) => (
+              <li key={idx}>{check}</li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 space-y-3">
+          <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-600" />
+            <span>Methodological Limitations</span>
+          </h2>
+          <ul className="text-xs text-slate-600 space-y-2 list-disc list-inside leading-relaxed">
+            {exam.known_limitations.map((lim, idx) => (
+              <li key={idx}>{lim}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      {/* 8. Qualified Human Forensic Review Certification */}
+      <div className="bg-white rounded-xl border-2 border-[#C5A059]/40 shadow-xs p-6 space-y-4">
+        <div className="flex items-center space-x-2 border-b border-slate-200 pb-3">
+          <UserCheck className="w-5 h-5 text-[#0F1E36]" />
+          <div>
+            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">
+              Layer 4: Qualified Human Forensic Review & Attestation
+            </h2>
+            <p className="text-xs text-slate-500">
+              The tool screens. The certified expert decides.
+            </p>
+          </div>
+        </div>
+
+        {reviewSuccessMsg && (
+          <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-xs flex items-center gap-2">
+            <Check className="w-4 h-4 text-emerald-600" />
+            <span>{reviewSuccessMsg}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleReviewSubmit} className="space-y-4 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-slate-700 font-semibold mb-1">Examiner Full Name *</label>
+              <input
+                type="text"
+                required
+                value={reviewerName}
+                onChange={(e) => setReviewerName(e.target.value)}
+                placeholder="e.g., Dr. A. Dixit"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-1 focus:ring-[#C5A059] focus:border-[#C5A059]"
+              />
+            </div>
+            <div>
+              <label className="block text-slate-700 font-semibold mb-1">Professional Designation *</label>
+              <input
+                type="text"
+                required
+                value={reviewerDesignation}
+                onChange={(e) => setReviewerDesignation(e.target.value)}
+                placeholder="e.g., Senior Digital Forensics Examiner"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-1 focus:ring-[#C5A059] focus:border-[#C5A059]"
+              />
+            </div>
+            <div>
+              <label className="block text-slate-700 font-semibold mb-1">Organization</label>
+              <input
+                type="text"
+                value={reviewerOrganization}
+                onChange={(e) => setReviewerOrganization(e.target.value)}
+                placeholder="e.g., Sure Clue Scientific Solutions"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-1 focus:ring-[#C5A059] focus:border-[#C5A059]"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-slate-700 font-semibold mb-1">Forensic Decision & Opinion *</label>
+            <select
+              value={reviewDecision}
+              onChange={(e) => setReviewDecision(e.target.value)}
+              className="w-full sm:w-80 px-3 py-2 border border-slate-300 rounded-lg focus:ring-1 focus:ring-[#C5A059] focus:border-[#C5A059] font-medium"
+            >
+              <option value="reviewed_no_indicators">Reviewed — No Tampering Indicators Found</option>
+              <option value="requires_further_examination">Requires Further Examination (Lab Hardware Review)</option>
+              <option value="reviewed_manipulation_suspected">Reviewed — Image Manipulation Suspected</option>
+              <option value="reviewed_inconclusive">Reviewed — Inconclusive Evidence</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-slate-700 font-semibold mb-1">Examiner Qualitative Notes & Findings *</label>
+            <textarea
+              required
+              rows={3}
+              value={reviewNotes}
+              onChange={(e) => setReviewNotes(e.target.value)}
+              placeholder="Record detailed observations regarding lighting direction, edge sharpness, EXIF provenance, and manual optical verifications..."
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-1 focus:ring-[#C5A059] focus:border-[#C5A059]"
+            />
+          </div>
+
+          {/* Attestation Checkbox */}
+          <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+            <label className="flex items-start space-x-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                required
+                checked={reviewAttestation}
+                onChange={(e) => setReviewAttestation(e.target.checked)}
+                className="mt-0.5 h-4 w-4 text-[#0F1E36] focus:ring-[#C5A059] border-slate-300 rounded"
+              />
+              <span className="text-[11px] text-slate-700 leading-relaxed select-none">
+                <strong className="text-slate-900">Examiner Attestation:</strong> I attest that I have reviewed the
+                automated technical screening results, inspected the derived exhibits, and conducted appropriate manual
+                evaluations. This record represents my independent professional opinion and will be embedded in the official
+                traceable forensic report.
+              </span>
+            </label>
+          </div>
+
+          <div className="flex items-center justify-between pt-2">
+            <div className="text-[11px] text-slate-400">
+              {exam.human_review.timestamp && (
+                <span>
+                  Last attested: {new Date(exam.human_review.timestamp).toLocaleString('en-US', { timeZone: 'UTC', hour12: false })} UTC
+                </span>
+              )}
+            </div>
+            <button
+              type="submit"
+              disabled={submittingReview || !reviewAttestation}
+              className={`inline-flex items-center gap-2 px-5 py-2 rounded-lg text-xs font-semibold shadow-xs transition-colors ${
+                submittingReview || !reviewAttestation
+                  ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                  : 'bg-[#0F1E36] hover:bg-[#162a4d] text-white'
+              }`}
+            >
+              <UserCheck className="w-4 h-4 text-[#C5A059]" />
+              <span>{submittingReview ? 'Recording Attestation...' : 'Attest & Update Review'}</span>
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* 9. Evidence Activity Audit Trail (Collapsible) */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+        <button
+          onClick={() => setAuditLogOpen(!auditLogOpen)}
+          className="w-full px-6 py-4 flex items-center justify-between text-left hover:bg-slate-50 transition-colors"
+        >
+          <div className="flex items-center space-x-2">
+            <Clock className="w-5 h-5 text-[#0F1E36]" />
+            <div>
+              <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide">
+                Evidentiary Activity Log
+              </h2>
+              <p className="text-xs text-slate-500">
+                {exam.activity_events.length} chronological audit events recorded for Case {exam.examination_id}
+              </p>
+            </div>
+          </div>
+          {auditLogOpen ? <ChevronUp className="w-5 h-5 text-slate-400" /> : <ChevronDown className="w-5 h-5 text-slate-400" />}
+        </button>
+
+        {auditLogOpen && (
+          <div className="px-6 pb-6 pt-2 border-t border-slate-200 space-y-2">
+            <div className="space-y-2">
+              {exam.activity_events.map((ev) => (
+                <div
+                  key={ev.id}
+                  className="flex items-start justify-between bg-slate-50 p-2.5 rounded border border-slate-200 text-xs font-mono"
+                >
+                  <div className="space-y-0.5">
+                    <span className="font-semibold text-slate-800">{ev.event_type}</span>
+                    <div className="text-[11px] text-slate-500">
+                      {JSON.stringify(ev.details)}
+                    </div>
+                  </div>
+                  <span className="text-slate-400 text-[11px] shrink-0 ml-4">
+                    {new Date(ev.timestamp).toLocaleTimeString()} UTC
+                  </span>
+                </div>
+              ))}
+            </div>
+            <p className="text-[11px] text-slate-500 mt-2">
+              Standard local database activity log for preliminary prototype screening. A full production institutional deployment requires dedicated hardware HSM access controls.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
