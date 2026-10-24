@@ -45,7 +45,7 @@ export const ExaminationResults: React.FC = () => {
   const [copiedHash, setCopiedHash] = useState<boolean>(false);
 
   // Visual Laboratory Controls
-  const [activeVisTab, setActiveVisTab] = useState<'side_by_side' | 'blend' | 'channels'>('side_by_side');
+  const [activeVisTab, setActiveVisTab] = useState<'side_by_side' | 'noise' | 'fft' | 'copymove' | 'ai_synthetic' | 'typography' | 'blend' | 'channels'>('side_by_side');
   const [blendOpacity, setBlendOpacity] = useState<number>(60);
 
   // Human Review Form State
@@ -190,6 +190,16 @@ export const ExaminationResults: React.FC = () => {
   const originalImgUrl = api.getImageUrl(exam.examination_id);
   const elaArtifact = exam.artifacts?.ela_heatmap;
   const elaImgUrl = elaArtifact ? api.getVisualizationUrl(exam.examination_id, 'ela_heatmap') : null;
+  const noiseArtifact = exam.artifacts?.noise_residual_map;
+  const noiseImgUrl = noiseArtifact ? api.getVisualizationUrl(exam.examination_id, 'noise_residual_map') : null;
+  const fftArtifact = exam.artifacts?.fft_spectrum;
+  const fftImgUrl = fftArtifact ? api.getVisualizationUrl(exam.examination_id, 'fft_spectrum') : null;
+  const copymoveArtifact = exam.artifacts?.copymove_map;
+  const copymoveImgUrl = copymoveArtifact ? api.getVisualizationUrl(exam.examination_id, 'copymove_map') : null;
+  const aiArtifact = exam.artifacts?.ai_synthetic_map;
+  const aiImgUrl = aiArtifact ? api.getVisualizationUrl(exam.examination_id, 'ai_synthetic_map') : null;
+  const typoArtifact = exam.artifacts?.typography_map;
+  const typoImgUrl = typoArtifact ? api.getVisualizationUrl(exam.examination_id, 'typography_map') : null;
 
   return (
     <div className="space-y-6">
@@ -343,7 +353,7 @@ export const ExaminationResults: React.FC = () => {
           </div>
 
           {/* View Mode Selector */}
-          <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-lg text-xs font-medium">
+          <div className="flex flex-wrap items-center gap-1 bg-slate-100 p-1 rounded-lg text-xs font-medium">
             <button
               onClick={() => setActiveVisTab('side_by_side')}
               className={`px-3 py-1 rounded transition-colors ${
@@ -352,19 +362,66 @@ export const ExaminationResults: React.FC = () => {
             >
               Side-by-Side Exhibits
             </button>
-            <button
-              onClick={() => setActiveVisTab('blend')}
-              disabled={!elaImgUrl}
-              className={`px-3 py-1 rounded transition-colors ${
-                !elaImgUrl
-                  ? 'opacity-40 cursor-not-allowed text-slate-400'
-                  : activeVisTab === 'blend'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              ELA Blend Overlay
-            </button>
+            {noiseImgUrl && (
+              <button
+                onClick={() => setActiveVisTab('noise')}
+                className={`px-3 py-1 rounded transition-colors ${
+                  activeVisTab === 'noise' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Noise Heatmap
+              </button>
+            )}
+            {fftImgUrl && (
+              <button
+                onClick={() => setActiveVisTab('fft')}
+                className={`px-3 py-1 rounded transition-colors ${
+                  activeVisTab === 'fft' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                2D Fourier Spectrum
+              </button>
+            )}
+            {copymoveImgUrl && (
+              <button
+                onClick={() => setActiveVisTab('copymove')}
+                className={`px-3 py-1 rounded transition-colors ${
+                  activeVisTab === 'copymove' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Copy-Move Clones
+              </button>
+            )}
+            {aiImgUrl && (
+              <button
+                onClick={() => setActiveVisTab('ai_synthetic')}
+                className={`px-3 py-1 rounded transition-colors ${
+                  activeVisTab === 'ai_synthetic' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                AI Generative Traces
+              </button>
+            )}
+            {typoImgUrl && (
+              <button
+                onClick={() => setActiveVisTab('typography')}
+                className={`px-3 py-1 rounded transition-colors ${
+                  activeVisTab === 'typography' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Document Typography
+              </button>
+            )}
+            {elaImgUrl && (
+              <button
+                onClick={() => setActiveVisTab('blend')}
+                className={`px-3 py-1 rounded transition-colors ${
+                  activeVisTab === 'blend' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                ELA Blend Overlay
+              </button>
+            )}
             <button
               onClick={() => setActiveVisTab('channels')}
               className={`px-3 py-1 rounded transition-colors ${
@@ -395,9 +452,15 @@ export const ExaminationResults: React.FC = () => {
 
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
-                <span>Exhibit B: Error Level Analysis (ELA) Heatmap</span>
+                <span>
+                  {elaImgUrl
+                    ? 'Exhibit B: Error Level Analysis (ELA) Heatmap'
+                    : noiseImgUrl
+                    ? 'Exhibit B: Noise Inconsistency & Residual Heatmap'
+                    : 'Exhibit B: Derived Analysis Artifact'}
+                </span>
                 <span className="text-slate-400 font-mono">
-                  {elaImgUrl ? 'Q=90 Amplified' : 'Not Applicable (PNG/Lossless)'}
+                  {elaImgUrl ? 'Q=90 Amplified' : noiseImgUrl ? 'High-Pass Median Filter' : 'Not Available'}
                 </span>
               </div>
               <div className="aspect-4/3 bg-slate-950 rounded-lg overflow-hidden border border-slate-300 flex items-center justify-center p-2">
@@ -407,12 +470,15 @@ export const ExaminationResults: React.FC = () => {
                     alt="ELA Heatmap"
                     className="max-h-full max-w-full object-contain"
                   />
+                ) : noiseImgUrl ? (
+                  <img
+                    src={noiseImgUrl}
+                    alt="Noise Residual Heatmap"
+                    className="max-h-full max-w-full object-contain"
+                  />
                 ) : (
                   <div className="text-center p-6 text-slate-400 text-xs">
-                    <p className="font-semibold text-slate-300 mb-1">ELA Unavailable for {exam.detected_media_type}</p>
-                    <p className="text-[11px] text-slate-500 max-w-xs">
-                      Error Level Analysis requires lossy discrete cosine transform (DCT) JPEG quantization grids.
-                    </p>
+                    <p className="font-semibold text-slate-300 mb-1">Visual exhibit not available</p>
                   </div>
                 )}
               </div>
@@ -420,7 +486,111 @@ export const ExaminationResults: React.FC = () => {
           </div>
         )}
 
-        {/* View 2: Blend Opacity Slider */}
+        {/* View 2: Noise Residual Heatmap */}
+        {activeVisTab === 'noise' && noiseImgUrl && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
+              <span>Multi-Scale Noise Residual & Local Variance Map</span>
+              <span className="text-slate-400 font-mono">Inferno Colormap (Hot = Anomalous Noise)</span>
+            </div>
+            <div className="aspect-video max-h-[500px] bg-slate-950 rounded-lg overflow-hidden border border-slate-300 flex items-center justify-center p-2 mx-auto">
+              <img
+                src={noiseImgUrl}
+                alt="Noise Inconsistency Heatmap"
+                className="max-h-full max-w-full object-contain"
+              />
+            </div>
+            <p className="text-center text-[11px] text-slate-500">
+              High-pass median noise residual mapped to local 16x16 macroblock variances. Color intensity reflects spatial noise variance discrepancies.
+            </p>
+          </div>
+        )}
+
+        {/* View 3: 2D Fourier Spectral Analysis */}
+        {activeVisTab === 'fft' && fftImgUrl && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
+              <span>2D Fast Fourier Transform (FFT) Magnitude Spectrum</span>
+              <span className="text-slate-400 font-mono">Viridis Colormap (Center = DC, Radial = Nyquist)</span>
+            </div>
+            <div className="aspect-video max-h-[500px] bg-slate-950 rounded-lg overflow-hidden border border-slate-300 flex items-center justify-center p-2 mx-auto">
+              <img
+                src={fftImgUrl}
+                alt="2D FFT Spectrum"
+                className="max-h-full max-w-full object-contain"
+              />
+            </div>
+            <p className="text-center text-[11px] text-slate-500">
+              Computes 2D Fourier energy distribution. Periodic grid lattices or sharp high-frequency spikes indicate periodic resampling, interpolation, or AI generative artifacts.
+            </p>
+          </div>
+        )}
+
+        {/* View 4: Copy-Move Forgery Clones */}
+        {activeVisTab === 'copymove' && copymoveImgUrl && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
+              <span>Copy-Move Forgery Keypoint Matching Vectors</span>
+              <span className="text-slate-400 font-mono">ORB Keypoints & Spatial Displacement Vectors</span>
+            </div>
+            <div className="aspect-video max-h-[500px] bg-slate-950 rounded-lg overflow-hidden border border-slate-300 flex items-center justify-center p-2 mx-auto">
+              <img
+                src={copymoveImgUrl}
+                alt="Copy-Move Detection"
+                className="max-h-full max-w-full object-contain"
+              />
+            </div>
+            <p className="text-center text-[11px] text-slate-500">
+              Lines connect spatially-separated regions with matching feature descriptors. Coherent parallel vectors reveal duplicated or cloned content.
+            </p>
+          </div>
+        )}
+
+        {/* View 5: AI Generative Classifier */}
+        {activeVisTab === 'ai_synthetic' && aiImgUrl && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
+              <span>AI Generative Classifier Probability Heatmap</span>
+              <span className="text-slate-400 font-mono">
+                Likelihood: {exam.artifacts?.ai_synthetic_analytics?.synthetic_likelihood_pct ?? 'N/A'}% (Spectral Decay & Residuals)
+              </span>
+            </div>
+            <div className="aspect-video max-h-[500px] bg-slate-950 rounded-lg overflow-hidden border border-slate-300 flex items-center justify-center p-2 mx-auto">
+              <img
+                src={aiImgUrl}
+                alt="AI Generative Heatmap"
+                className="max-h-full max-w-full object-contain"
+              />
+            </div>
+            <p className="text-center text-[11px] text-slate-500">
+              Evaluates 2D Fourier radial spectral power decay and cross-channel noise co-occurrence to identify latent diffusion (Midjourney, DALL-E) and GAN traces.
+            </p>
+          </div>
+        )}
+
+        {/* View 6: Document Typography & Alignment */}
+        {activeVisTab === 'typography' && typoImgUrl && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
+              <span>Document Typography & Character Alignment Map</span>
+              <span className="text-slate-400 font-mono">
+                {exam.artifacts?.typography_analytics?.anomalous_glyphs_count ?? 0} Displaced Glyphs (Green = Aligned, Red = Anomaly)
+              </span>
+            </div>
+            <div className="aspect-video max-h-[500px] bg-slate-950 rounded-lg overflow-hidden border border-slate-300 flex items-center justify-center p-2 mx-auto">
+              <img
+                src={typoImgUrl}
+                alt="Document Typography Map"
+                className="max-h-full max-w-full object-contain"
+              />
+            </div>
+            <p className="text-center text-[11px] text-slate-500">
+              Isolates character glyph baselines and edge gradients across text lines. Highlights spliced characters, altered dates, or pasted table numbers.
+            </p>
+          </div>
+        )}
+
+        {/* View 5: Blend Opacity Slider */}
         {activeVisTab === 'blend' && elaImgUrl && (
           <div className="space-y-4">
             <div className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs">
@@ -440,13 +610,11 @@ export const ExaminationResults: React.FC = () => {
             </div>
 
             <div className="relative aspect-video max-h-[500px] bg-slate-950 rounded-lg overflow-hidden border border-slate-300 flex items-center justify-center mx-auto">
-              {/* Base Original */}
               <img
                 src={originalImgUrl}
                 alt="Original"
                 className="max-h-full max-w-full object-contain"
               />
-              {/* Overlay ELA with Opacity */}
               <img
                 src={elaImgUrl}
                 alt="ELA Overlay"
@@ -460,7 +628,7 @@ export const ExaminationResults: React.FC = () => {
           </div>
         )}
 
-        {/* View 3: Color Channel Analytics (Recharts) */}
+        {/* View 6: Color Channel Analytics (Recharts) */}
         {activeVisTab === 'channels' && (
           <div className="space-y-4">
             <div className="h-64 w-full bg-slate-50 p-4 rounded-lg border border-slate-200">

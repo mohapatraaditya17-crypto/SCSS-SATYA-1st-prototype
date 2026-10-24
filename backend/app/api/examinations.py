@@ -276,6 +276,24 @@ def get_examination_json_report(examination_id: str, db: Session = Depends(get_d
     return JSONResponse(content=report_data)
 
 
+@router.get("/examinations/{examination_id}/canonical-evidence", tags=["Reports"])
+def get_canonical_evidence(examination_id: str, db: Session = Depends(get_db)):
+    """
+    Returns the canonical NIST OpenMFC & Section 44 Evidence JSON representation.
+    """
+    exam = db.query(Examination).filter(Examination.examination_id == examination_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail=f"Examination '{examination_id}' not found.")
+
+    artifacts = exam.artifacts or {}
+    evidence = artifacts.get("canonical_evidence")
+    if not evidence:
+        report_data = JSONReportGenerator.generate(exam)
+        evidence = report_data.get("canonical_evidence") or {}
+
+    return JSONResponse(content=evidence)
+
+
 @router.get("/examinations/{examination_id}/report.pdf", tags=["Reports"])
 def get_examination_pdf_report(examination_id: str, db: Session = Depends(get_db)):
     """

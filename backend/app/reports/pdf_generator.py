@@ -207,10 +207,39 @@ class PDFReportGenerator:
             ])
         )
         story.append(evidence_table)
-        story.append(Spacer(1, 12))
+        story.append(Spacer(1, 10))
+
+        # Extracted Format & Structural Metadata Table if present
+        meta_dict = exam.extracted_metadata or {}
+        if meta_dict:
+            story.append(Paragraph("2. EXTRACTED IMAGE & STRUCTURAL METADATA", heading_style))
+            meta_rows = []
+            keys = list(meta_dict.keys())[:12]  # Cap at top 12 relevant headers
+            for i in range(0, len(keys), 2):
+                k1 = keys[i]
+                v1 = str(meta_dict[k1])
+                k2 = keys[i + 1] if i + 1 < len(keys) else ""
+                v2 = str(meta_dict[k2]) if k2 else ""
+                meta_rows.append([
+                    Paragraph(k1, meta_label_style), Paragraph(v1, meta_val_style),
+                    Paragraph(k2, meta_label_style), Paragraph(v2, meta_val_style)
+                ])
+
+            meta_table = Table(meta_rows, colWidths=[110, 150, 110, 134])
+            meta_table.setStyle(TableStyle([
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
+                ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#F8FAFC")),
+                ("BACKGROUND", (2, 0), (2, -1), colors.HexColor("#F8FAFC")),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ]))
+            story.append(meta_table)
+            story.append(Spacer(1, 10))
 
         # Screening Tests Section
-        story.append(Paragraph("2. AUTOMATED SCREENING TEST RESULTS", heading_style))
+        story.append(Paragraph("3. AUTOMATED SCREENING TEST RESULTS & INDICATORS", heading_style))
 
         test_records = exam.test_results or []
         for idx, t in enumerate(test_records, 1):
@@ -247,33 +276,50 @@ class PDFReportGenerator:
             story.append(card_table)
             story.append(Spacer(1, 6))
 
-        story.append(Spacer(1, 6))
+        story.append(Spacer(1, 8))
 
-        # Embedded ELA Heatmap Exhibit if available
-        ela_artifact = (exam.artifacts or {}).get("ela_heatmap")
-        if ela_artifact:
-            artifact_file = settings.ARTIFACTS_DIR / ela_artifact
-            if artifact_file.exists():
-                story.append(Paragraph("3. DERIVED EXHIBIT: ERROR LEVEL ANALYSIS (ELA) HEATMAP", heading_style))
-                story.append(Paragraph("Derived visualization amplifying discrete cosine transform (DCT) recompression error (90% quality standard baseline):", body_style))
-                story.append(Spacer(1, 4))
-                try:
-                    rl_img = RLImage(str(artifact_file), width=3.5 * inch, height=2.4 * inch)
-                    img_table = Table([[rl_img]], colWidths=[504])
-                    img_table.setStyle(TableStyle([
-                        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                        ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
-                        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#000000")),
-                        ("TOPPADDING", (0, 0), (-1, -1), 4),
-                        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-                    ]))
-                    story.append(img_table)
-                    story.append(Spacer(1, 8))
-                except Exception:
-                    pass
+        # Section 4: Derived Visual Laboratory Exhibits
+        artifacts = exam.artifacts or {}
+        exhibits_to_render = []
 
-        # Human Forensic Review Section
-        story.append(Paragraph("4. QUALIFIED HUMAN FORENSIC REVIEW", heading_style))
+        # Exhibit B: ELA Heatmap (JPEG) or Noise Residual Map (PNG/All)
+        if "ela_heatmap" in artifacts:
+            exhibits_to_render.append(("Exhibit B: Error Level Analysis (ELA) Heatmap (JPEG Q=90 Recompression Residual)", artifacts["ela_heatmap"]))
+        if "noise_residual_map" in artifacts:
+            exhibits_to_render.append(("Exhibit B2: Multi-Scale Noise Inconsistency & Residual Heatmap (Local Variance Map)", artifacts["noise_residual_map"]))
+        if "fft_spectrum" in artifacts:
+            exhibits_to_render.append(("Exhibit C: 2D Fourier Frequency Spectrum (Spatial Frequency & Harmonic Energy)", artifacts["fft_spectrum"]))
+        if "copymove_map" in artifacts:
+            exhibits_to_render.append(("Exhibit D: Copy-Move Forgery Detection (ORB Keypoint Spatial Matching Vectors)", artifacts["copymove_map"]))
+        if "ai_synthetic_map" in artifacts:
+            exhibits_to_render.append(("Exhibit E: AI Generative Classifier Heatmap (Spectral Decay & Diffusion Traces)", artifacts["ai_synthetic_map"]))
+        if "typography_map" in artifacts:
+            exhibits_to_render.append(("Exhibit F: Document Typography & Alignment Map (Glyph Baseline & Edge Inconsistencies)", artifacts["typography_map"]))
+
+        if exhibits_to_render:
+            story.append(Paragraph("4. DERIVED FORENSIC VISUAL EXHIBITS", heading_style))
+            for title, fname in exhibits_to_render:
+                art_file = settings.ARTIFACTS_DIR / fname
+                if art_file.exists():
+                    story.append(Paragraph(f"<b>{title}</b>", meta_label_style))
+                    story.append(Spacer(1, 3))
+                    try:
+                        rl_img = RLImage(str(art_file), width=4.0 * inch, height=2.4 * inch)
+                        img_table = Table([[rl_img]], colWidths=[504])
+                        img_table.setStyle(TableStyle([
+                            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                            ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
+                            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#0F172A")),
+                            ("TOPPADDING", (0, 0), (-1, -1), 4),
+                            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                        ]))
+                        story.append(img_table)
+                        story.append(Spacer(1, 8))
+                    except Exception:
+                        pass
+
+        # Section 5: Human Forensic Review Section
+        story.append(Paragraph("5. QUALIFIED HUMAN FORENSIC REVIEW & ATTESTATION", heading_style))
         review_stat = exam.human_review_status.replace("_", " ").title()
         rev_date = exam.review_timestamp.strftime("%Y-%m-%d %H:%M:%S UTC") if exam.review_timestamp else "Pending"
 
@@ -304,8 +350,8 @@ class PDFReportGenerator:
         story.append(review_table)
         story.append(Spacer(1, 10))
 
-        # Limitations & Suggested Checks
-        story.append(Paragraph("5. SCIENTIFIC LIMITATIONS & SUGGESTED MANUAL CHECKS", heading_style))
+        # Section 6: Limitations & Suggested Checks
+        story.append(Paragraph("6. SCIENTIFIC LIMITATIONS & SUGGESTED MANUAL CHECKS", heading_style))
 
         lim_items = "<br/>• ".join(exam.known_limitations or [])
         lim_p = Paragraph(f"<b>Methodological Limitations:</b><br/>• {lim_items}", body_style)

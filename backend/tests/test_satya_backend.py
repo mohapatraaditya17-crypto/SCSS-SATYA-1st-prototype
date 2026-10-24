@@ -82,12 +82,24 @@ def test_valid_jpeg_upload():
     assert data["detected_media_type"] == "image/jpeg"
     assert data["image_width"] == 300
     assert data["image_height"] == 200
-    assert len(data["tests"]) == 4
+    assert len(data["tests"]) >= 12
 
     # Verify ELA ran for JPEG
     ela_test = next(t for t in data["tests"] if t["method"] == "error_level_analysis")
     assert ela_test["status"] == "completed"
     assert "ela_heatmap" in data["artifacts"]
+
+    # Verify Noise, FFT, CopyMove, AI Generative, and Typography tests ran
+    assert any(t["method"] == "noise_residual_analysis" for t in data["tests"])
+    assert any(t["method"] == "fourier_spectral_analysis" for t in data["tests"])
+    assert any(t["method"] == "copy_move_forgery_detection" for t in data["tests"])
+    assert any(t["method"] == "ai_generative_classifier" for t in data["tests"])
+    assert any(t["method"] == "document_typography_and_alignment" for t in data["tests"])
+    assert "noise_residual_map" in data["artifacts"]
+    assert "fft_spectrum" in data["artifacts"]
+    assert "copymove_map" in data["artifacts"]
+    assert "ai_synthetic_map" in data["artifacts"]
+    # typography_map is generated when glyphs are detected (blank test image has 0 glyphs)
 
 
 def test_valid_png_upload():
@@ -249,7 +261,7 @@ def test_json_and_pdf_report_generation():
     report_data = json_res.json()
     assert report_data["examination"]["examination_id"] == exam_id
     assert "disclaimer" in report_data
-    assert len(report_data["examination"]["screening_tests"]) == 4
+    assert len(report_data["examination"]["screening_tests"]) >= 12
 
     # PDF Report
     pdf_res = client.get(f"/api/examinations/{exam_id}/report.pdf")

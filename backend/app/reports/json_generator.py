@@ -8,8 +8,12 @@ class JSONReportGenerator:
     @classmethod
     def generate(cls, exam: Examination) -> Dict[str, Any]:
         """
-        Produces a complete machine-readable forensic screening JSON report.
+        Produces a complete machine-readable forensic screening JSON report
+        including the NIST OpenMFC / Section 44 Canonical Evidence JSON structure.
         """
+        artifacts = exam.artifacts or {}
+        canonical_evidence = artifacts.get("canonical_evidence")
+
         return {
             "platform": {
                 "name": settings.PROJECT_FULL_NAME,
@@ -17,13 +21,15 @@ class JSONReportGenerator:
                 "pipeline_version": settings.PIPELINE_VERSION,
                 "organization": settings.ORGANIZATION,
                 "core_principle": settings.CORE_PRINCIPLE,
+                "standard_compliance": ["ISO/IEC 27037", "NIST OpenMFC", "C2PA Specification 2.x"],
             },
             "disclaimer": settings.MANDATORY_DISCLAIMER,
             "report_metadata": {
                 "report_id": f"REP-{exam.examination_id}",
                 "generated_at": datetime.now(timezone.utc).isoformat(),
-                "format_version": "1.0",
+                "format_version": "2.0",
             },
+            "canonical_evidence": canonical_evidence,
             "examination": {
                 "examination_id": exam.examination_id,
                 "status": exam.status,
@@ -52,7 +58,7 @@ class JSONReportGenerator:
                 },
                 "screening_tests": exam.test_results or [],
                 "extracted_metadata": exam.extracted_metadata or {},
-                "artifacts": exam.artifacts or {},
+                "artifacts": artifacts,
                 "methodological_limitations": exam.known_limitations or [],
                 "suggested_manual_forensic_checks": exam.suggested_manual_checks or [],
                 "human_review": {
