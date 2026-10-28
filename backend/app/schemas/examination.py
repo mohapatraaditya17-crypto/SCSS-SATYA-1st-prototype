@@ -1,6 +1,43 @@
 from datetime import datetime
+from enum import Enum
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
+
+
+class DetectorStatus(str, Enum):
+    POSITIVE = "POSITIVE"
+    NEGATIVE = "NEGATIVE"
+    INCONCLUSIVE = "INCONCLUSIVE"
+    NOT_APPLICABLE = "NOT_APPLICABLE"
+    ERROR = "ERROR"
+
+
+class EvidenceStrength(str, Enum):
+    NONE = "NONE"
+    LOW = "LOW"
+    MODERATE = "MODERATE"
+    STRONG = "STRONG"
+    VERY_STRONG = "VERY_STRONG"
+
+
+class EvidenceFamilyType(str, Enum):
+    INTEGRITY = "INTEGRITY"
+    PROVENANCE = "PROVENANCE"
+    COMPRESSION = "COMPRESSION"
+    RESIDUAL = "RESIDUAL"
+    MANIPULATION = "MANIPULATION"
+    AI_ML = "AI_ML"
+    PHYSICAL_CONSISTENCY = "PHYSICAL_CONSISTENCY"
+    DOCUMENT_CONTAINER = "DOCUMENT_CONTAINER"
+
+
+class TechnicalAssessment(str, Enum):
+    LIKELY_AUTHENTIC = "LIKELY_AUTHENTIC"
+    LIKELY_TAMPERED = "LIKELY_TAMPERED"
+    INCONCLUSIVE = "INCONCLUSIVE"
+    UNSUPPORTED_FORMAT = "UNSUPPORTED_FORMAT"
+    ERROR = "ERROR"
+    INSUFFICIENT_EVIDENCE = "INSUFFICIENT_EVIDENCE"
 
 
 class FileIntegrityInfo(BaseModel):
@@ -9,6 +46,64 @@ class FileIntegrityInfo(BaseModel):
     sha1: Optional[str] = None
     md5: Optional[str] = None
     verified: Optional[bool] = None
+
+
+class EvidenceRegion(BaseModel):
+    x: int = 0
+    y: int = 0
+    width: int = 0
+    height: int = 0
+    confidence: float = 0.85
+    detector: str = ""
+    label: str = ""
+
+
+class DecisiveObservation(BaseModel):
+    detector: str
+    finding: str
+    confidence: float
+    region: Optional[EvidenceRegion] = None
+
+
+class DetectorResult(BaseModel):
+    detector_name: str
+    detector_version: str
+    status: str = DetectorStatus.INCONCLUSIVE.value  # POSITIVE, NEGATIVE, INCONCLUSIVE, NOT_APPLICABLE, ERROR
+    score: float = 0.0
+    confidence: float = 0.0
+    evidence_strength: str = EvidenceStrength.NONE.value  # NONE, LOW, MODERATE, STRONG, VERY_STRONG
+    applicable: bool = True
+    technical_reason: str = ""
+    affected_regions: List[EvidenceRegion] = Field(default_factory=list)
+    execution_time_ms: float = 0.0
+    error_code: Optional[str] = None
+    observations: List[str] = Field(default_factory=list)
+    limitations: List[str] = Field(default_factory=list)
+
+
+class EvidenceFamilySummary(BaseModel):
+    family: str
+    status: str  # SUPPORTING_TAMPERING, SUPPORTING_AUTHENTIC, INCONCLUSIVE, NOT_APPLICABLE, CONTRADICTORY
+    aggregate_score: float = 0.0
+    weight: float = 1.0
+    member_detectors: List[str] = Field(default_factory=list)
+    findings_summary: str = ""
+
+
+class DecisionEngineOutput(BaseModel):
+    final_assessment: str = TechnicalAssessment.INCONCLUSIVE.value
+    decision_confidence: float = 0.50
+    evidence_strength: str = EvidenceStrength.NONE.value
+    human_review_required: bool = True
+    decisive_observations: List[DecisiveObservation] = Field(default_factory=list)
+    supporting_observations: List[str] = Field(default_factory=list)
+    contradictory_observations: List[str] = Field(default_factory=list)
+    inconclusive_tests: List[str] = Field(default_factory=list)
+    not_applicable_tests: List[str] = Field(default_factory=list)
+    decision_rationale: str = ""
+    evidence_families: Dict[str, EvidenceFamilySummary] = Field(default_factory=dict)
+    rules_version: str = "2026.2-v2"
+    threshold_profile: str = "production-v2"
 
 
 class ScreeningTestResult(BaseModel):
@@ -21,6 +116,12 @@ class ScreeningTestResult(BaseModel):
     explanation: str
     limitations: List[str] = Field(default_factory=list)
     execution_time_ms: float = 0.0
+    # SATYA v2 extensions (optional for backwards compatibility)
+    score: Optional[float] = None
+    confidence: Optional[float] = None
+    evidence_strength: Optional[str] = None
+    normalized_status: Optional[str] = None
+    affected_regions: List[EvidenceRegion] = Field(default_factory=list)
 
 
 class ActivityEventResponse(BaseModel):
@@ -64,6 +165,8 @@ class ExaminationOverview(BaseModel):
     color_mode: str
     status: str
     overall_assessment: str
+    decision_assessment: Optional[str] = None
+    evidence_strength: Optional[str] = None
     human_review_status: str
 
 
@@ -84,6 +187,12 @@ class ExaminationDetailResponse(BaseModel):
     file_integrity: FileIntegrityInfo
     tests: List[ScreeningTestResult]
     overall_assessment: str
+    decision_assessment: Optional[str] = None
+    evidence_strength: Optional[str] = None
+    decision_output: Optional[DecisionEngineOutput] = None
+    detector_results: List[DetectorResult] = Field(default_factory=list)
+    image_characterization: Dict[str, Any] = Field(default_factory=dict)
+
     human_review_status: str
     human_review: HumanReviewResponse
     extracted_metadata: Dict[str, Any] = Field(default_factory=dict)
@@ -102,15 +211,15 @@ class IntegrityCheckResponse(BaseModel):
     match: bool
     algorithm: str = "SHA-256"
     checked_at: datetime
-    status: str
-    message: str
+    status: Optional[str] = None
+    message: Optional[str] = None
 
 
 class DashboardStatsResponse(BaseModel):
-    total_examinations: int
-    recent_examinations_count: int
-    pending_review_count: int
-    reviewed_count: int
-    requires_further_review_count: int
-    reports_generated_count: int
+    total_examinations: int = 0
+    recent_examinations_count: int = 0
+    pending_review_count: int = 0
+    reviewed_count: int = 0
+    requires_further_review_count: int = 0
+    reports_generated_count: int = 0
     preliminary_notice: str

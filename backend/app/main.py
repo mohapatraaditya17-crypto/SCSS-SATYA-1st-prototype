@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
-from app.database.session import engine, Base
+from app.database.session import engine, Base, run_migrations
 import app.database.models  # Register models with Base
 from app.api.health import router as health_router
 from app.api.examinations import router as examinations_router
@@ -15,8 +15,9 @@ from app.api.examinations import router as examinations_router
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("satya")
 
-# Initialize database schema
+# Initialize database schema and run migrations
 Base.metadata.create_all(bind=engine)
+run_migrations()
 
 app = FastAPI(
     title=settings.PROJECT_FULL_NAME,

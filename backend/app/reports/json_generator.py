@@ -5,12 +5,13 @@ from app.database.models import Examination
 
 
 class JSONReportGenerator:
+    """
+    Forensic JSON Report Generator (SATYA v2).
+    Generates structured, verifiable, machine-readable forensic examination records
+    conforming to ISO/IEC 27037 and NIST OpenMFC specifications.
+    """
     @classmethod
     def generate(cls, exam: Examination) -> Dict[str, Any]:
-        """
-        Produces a complete machine-readable forensic screening JSON report
-        including the NIST OpenMFC / Section 44 Canonical Evidence JSON structure.
-        """
         artifacts = exam.artifacts or {}
         canonical_evidence = artifacts.get("canonical_evidence")
 
@@ -19,6 +20,8 @@ class JSONReportGenerator:
                 "name": settings.PROJECT_FULL_NAME,
                 "version": settings.VERSION,
                 "pipeline_version": settings.PIPELINE_VERSION,
+                "rules_version": settings.RULES_VERSION,
+                "threshold_profile": settings.THRESHOLD_PROFILE,
                 "organization": settings.ORGANIZATION,
                 "core_principle": settings.CORE_PRINCIPLE,
                 "standard_compliance": ["ISO/IEC 27037", "NIST OpenMFC", "C2PA Specification 2.x"],
@@ -30,6 +33,14 @@ class JSONReportGenerator:
                 "format_version": "2.0",
             },
             "canonical_evidence": canonical_evidence,
+            "technical_assessment": {
+                "decision_assessment": exam.decision_assessment or "INCONCLUSIVE",
+                "evidence_strength": exam.evidence_strength or "NONE",
+                "decision_confidence_pct": exam.decision_confidence or 50,
+                "decision_data": exam.decision_data or {},
+                "human_review_required": True,
+            },
+            "image_characterization": exam.image_characterization or {},
             "examination": {
                 "examination_id": exam.examination_id,
                 "status": exam.status,
@@ -56,6 +67,7 @@ class JSONReportGenerator:
                     "md5": exam.md5_digest,
                     "verified_against_vault": True,
                 },
+                "detector_results": exam.detector_results or [],
                 "screening_tests": exam.test_results or [],
                 "extracted_metadata": exam.extracted_metadata or {},
                 "artifacts": artifacts,

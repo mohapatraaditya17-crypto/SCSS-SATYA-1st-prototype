@@ -16,6 +16,49 @@ export interface ScreeningTestResult {
   explanation: string;
   limitations: string[];
   execution_time_ms: number;
+  // v2 normalized fields (optional for backward compat)
+  score?: number | null;
+  confidence?: number | null;
+  evidence_strength?: string | null;
+  normalized_status?: 'POSITIVE' | 'NEGATIVE' | 'INCONCLUSIVE' | 'NOT_APPLICABLE' | 'ERROR' | null;
+  affected_regions?: Array<{
+    x: number; y: number; w: number; h: number;
+    confidence: number; label: string;
+  }> | null;
+}
+
+/** v2 — Normalized per-detector result from the fusion engine */
+export interface DetectorResult {
+  detector_name: string;
+  status: 'POSITIVE' | 'NEGATIVE' | 'INCONCLUSIVE' | 'NOT_APPLICABLE' | 'ERROR';
+  score: number | null;
+  confidence: number | null;
+  evidence_strength: 'STRONG' | 'MODERATE' | 'WEAK' | 'NONE' | 'UNKNOWN';
+  evidence_family: string;
+  technical_reason: string;
+  affected_regions: Array<{
+    x: number; y: number; w: number; h: number;
+    confidence: number; label: string;
+  }>;
+  execution_time_ms: number;
+  detector_version: string;
+}
+
+/** v2 — Image characterization block */
+export interface ImageCharacterization {
+  format: string;
+  mime_type: string;
+  dimensions: { width: number; height: number };
+  megapixels: number;
+  aspect_ratio: number;
+  has_camera_exif: boolean;
+  camera_make?: string | null;
+  camera_model?: string | null;
+  software_tag?: string | null;
+  image_class: 'PHOTOGRAPH' | 'DOCUMENT' | 'SCREENSHOT' | 'GRAPHIC' | 'AI_CANDIDATE' | 'UNKNOWN';
+  applicable_detectors: string[];
+  inapplicable_detectors: Record<string, string>;
+  characterization_version: string;
 }
 
 export interface ActivityEvent {
@@ -61,6 +104,13 @@ export interface ExaminationDetail {
   activity_events: ActivityEvent[];
   report_generated_at?: string | null;
   disclaimer: string;
+
+  // v2 fields
+  decision_assessment?: 'LIKELY_AUTHENTIC' | 'LIKELY_TAMPERED' | 'INCONCLUSIVE' | null;
+  evidence_strength?: 'STRONG' | 'MODERATE' | 'WEAK' | 'NONE' | 'UNKNOWN' | null;
+  decision_confidence?: number | null;
+  detector_results?: DetectorResult[] | null;
+  image_characterization?: ImageCharacterization | null;
 }
 
 export interface ExaminationOverview {
@@ -79,6 +129,9 @@ export interface ExaminationOverview {
   status: string;
   overall_assessment: string;
   human_review_status: string;
+  // v2 fields
+  decision_assessment?: 'LIKELY_AUTHENTIC' | 'LIKELY_TAMPERED' | 'INCONCLUSIVE' | null;
+  evidence_strength?: 'STRONG' | 'MODERATE' | 'WEAK' | 'NONE' | 'UNKNOWN' | null;
 }
 
 export interface DashboardStats {

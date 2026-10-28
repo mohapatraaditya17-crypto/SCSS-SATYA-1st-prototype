@@ -191,6 +191,8 @@ class PDFReportGenerator:
              Paragraph("Pipeline Version", meta_label_style), Paragraph(f"v{exam.analysis_pipeline_version} (App: v{exam.application_version})", meta_val_style)],
             [Paragraph("SHA-256 Digest", meta_label_style), Paragraph(f"<b>{exam.sha256_digest}</b>", meta_val_style),
              Paragraph("Workflow Status", meta_label_style), Paragraph(f"<b>{exam.overall_assessment.replace('_', ' ').upper()}</b>", meta_val_style)],
+            [Paragraph("Technical Assessment", meta_label_style), Paragraph(f"<b>{exam.decision_assessment or 'INCONCLUSIVE'}</b>", meta_val_style),
+             Paragraph("Evidence Strength", meta_label_style), Paragraph(f"<b>{exam.evidence_strength or 'NONE'}</b>", meta_val_style)],
         ]
 
         evidence_table = Table(evidence_data, colWidths=[100, 160, 100, 144])
@@ -282,7 +284,8 @@ class PDFReportGenerator:
         artifacts = exam.artifacts or {}
         exhibits_to_render = []
 
-        # Exhibit B: ELA Heatmap (JPEG) or Noise Residual Map (PNG/All)
+        if "composite_evidence_map" in artifacts:
+            exhibits_to_render.append(("Exhibit A: Composite Forensic Evidence Heatmap (Multi-Detector Spatial Convergence)", artifacts["composite_evidence_map"]))
         if "ela_heatmap" in artifacts:
             exhibits_to_render.append(("Exhibit B: Error Level Analysis (ELA) Heatmap (JPEG Q=90 Recompression Residual)", artifacts["ela_heatmap"]))
         if "noise_residual_map" in artifacts:

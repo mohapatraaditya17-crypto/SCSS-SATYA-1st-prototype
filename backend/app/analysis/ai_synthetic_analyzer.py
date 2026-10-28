@@ -6,12 +6,18 @@ import numpy as np
 import cv2
 
 from app.core.config import settings
-from app.schemas.examination import ScreeningTestResult
+from app.schemas.examination import (
+    ScreeningTestResult,
+    DetectorResult,
+    DetectorStatus,
+    EvidenceStrength,
+    EvidenceRegion,
+)
 
 
 class AISyntheticAnalyzer:
     METHOD_NAME = "ai_generative_classifier"
-    VERSION = "2026.4"
+    VERSION = "2.0.0"
 
     @classmethod
     def analyze(
@@ -19,11 +25,12 @@ class AISyntheticAnalyzer:
         image_path: Path,
         examination_id: str,
         media_type: str,
-    ) -> Tuple[ScreeningTestResult, Dict[str, str], Dict[str, Any]]:
+    ) -> Tuple[ScreeningTestResult, Dict[str, str], Dict[str, Any], DetectorResult]:
         start_time = time.perf_counter()
         observations: List[str] = []
         artifacts: Dict[str, str] = {}
         analytics: Dict[str, Any] = {}
+        affected_regions: List[EvidenceRegion] = []
         limitations: List[str] = [
             "AI generation screening evaluates statistical spectral decay, high-frequency residuals, frequency lattice patterns, and cross-channel co-occurrence.",
             "Modern diffusion architectures (Midjourney v6, Stable Diffusion XL, FLUX.1) evolve rapidly and post-processing (noise injection, heavy recompression) may attenuate signatures.",
@@ -47,19 +54,14 @@ class AISyntheticAnalyzer:
                 height, width = gray.shape
 
                 # 1. Edge-Suppressed Cross-Channel Noise Residual Co-occurrence
-                # In real optical sensors, Bayer CFA and physical photon shot noise produce modest channel coupling.
-                # In latent diffusion/GAN models, RGB channels are decoded simultaneously from shared latent space,
-                # creating abnormally high cross-channel noise correlation (> 0.88, often > 0.95).
                 r_ch = rgb[:, :, 0].astype(np.float32)
                 g_ch = rgb[:, :, 1].astype(np.float32)
                 b_ch = rgb[:, :, 2].astype(np.float32)
 
-                # High-pass filter each channel via median filter
                 r_res = r_ch - cv2.medianBlur(rgb[:, :, 0], 3).astype(np.float32)
                 g_res = g_ch - cv2.medianBlur(rgb[:, :, 1], 3).astype(np.float32)
                 b_res = b_ch - cv2.medianBlur(rgb[:, :, 2], 3).astype(np.float32)
 
-                # Suppress extreme edge gradients to prevent image content from dominating noise correlation
                 sobel_x = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
                 sobel_y = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
                 grad_mag = np.sqrt(sobel_x ** 2 + sobel_y ** 2)
@@ -83,9 +85,7 @@ class AISyntheticAnalyzer:
                 corr_gb = float(np.corrcoef(g_eval, b_eval)[0, 1]) if std_g > 0 and std_b > 0 else 0.0
                 cross_channel_corr = float((corr_rg + corr_rb + corr_gb) / 3.0)
 
-                # 2. Residual Spatial Autocorrelation (Lag-1 and Lag-2)
-                # Physical sensor noise is white (uncorrelated spatially).
-                # Diffusion VAE decoders introduce short-range spatial autocorrelation in the noise residual.
+                # 2. Residual Spatial Autocorrelation
                 res_center = r_res[1:-1, 1:-1]
                 res_shift_x = r_res[1:-1, 2:]
                 res_shift_y = r_res[2:, 1:-1]
@@ -97,8 +97,7 @@ class AISyntheticAnalyzer:
                 else:
                     spatial_autocorr = 0.0
 
-                # 3. Spectral Power Decay Slope (Alpha estimation) & Frequency Lattice Harmonics
-                # Natural images obey 1/f^alpha (alpha ~ 1.85-2.25). Generative models exhibit unnatural slope or sharp grid spikes.
+                # 3. Spectral Power Decay Slope
                 f_transform = np.fft.fftshift(np.fft.fft2(gray))
                 psd2d = np.abs(f_transform) ** 2
                 cy, cx = height // 2, width // 2
@@ -124,7 +123,7 @@ class AISyntheticAnalyzer:
                 else:
                     spectral_slope = 2.0
 
-                # High-Frequency Periodic Lattice Peaks (GAN / Diffusion transposed convolution artifacts)
+                # High-Frequency Lattice Peaks
                 hf_mask = dist_matrix > (0.35 * max_r)
                 hf_log_psd = np.log(psd2d + 1.0)
                 hf_vals = hf_log_psd[hf_mask]
@@ -136,35 +135,43 @@ class AISyntheticAnalyzer:
                     hf_peak_count = 0
                     hf_peak_density = 0.0
 
-                # 4. Patch-Level High-Frequency Noise Variance Disparity (Fast Vectorized Implementation)
-                # Instead of a slow python double loop, compute full Laplacian once and calculate block stats
+                # 4. Patch-Level Disparity Analysis
                 full_laplacian = cv2.Laplacian(gray, cv2.CV_32F)
                 patch_size = 32
                 h_patches = max(1, height // patch_size)
                 w_patches = max(1, width // patch_size)
-                
-                # Crop to exact patch multiple
+
                 crop_lap = full_laplacian[:h_patches * patch_size, :w_patches * patch_size]
-                # Reshape to (h_patches, patch_size, w_patches, patch_size)
                 reshaped = crop_lap.reshape(h_patches, patch_size, w_patches, patch_size)
-                # Variance per patch over axes (1, 3)
                 patch_scores = np.var(reshaped, axis=(1, 3)).astype(np.float32)
 
                 p_min = float(np.min(patch_scores))
                 p_max = float(np.max(patch_scores))
                 norm_patch_scores = (patch_scores - p_min) / (p_max - p_min + 1e-4)
 
-                # Patch variance kurtosis (heavy-tail disparity in high-frequency detail)
                 p_mean = np.mean(patch_scores)
                 p_std = np.std(patch_scores)
                 patch_kurtosis = float(np.mean(((patch_scores - p_mean) / (p_std + 1e-4)) ** 4) - 3.0) if p_std > 1e-4 else 0.0
 
-                # 5. Synthesize Calibrated Multi-Layer AI Likelihood Score
+                # Find localized synthetic patch regions (if any patch > 0.85)
+                high_synth_patches = np.where(norm_patch_scores > 0.82)
+                for py, px in zip(high_synth_patches[0][:10], high_synth_patches[1][:10]):
+                    affected_regions.append(
+                        EvidenceRegion(
+                            x=int(px * patch_size),
+                            y=int(py * patch_size),
+                            width=patch_size,
+                            height=patch_size,
+                            confidence=0.82,
+                            detector=cls.METHOD_NAME,
+                            label="Localized Synthetic Inpainting / Residual Anomaly",
+                        )
+                    )
+
+                # 5. Synthesize Calibrated Score
                 if metadata_ai_found:
                     synthetic_score = 0.98
                 else:
-                    # Score components:
-                    # a) Correlation score: optical noise < 0.50 is natural; > 0.85 indicates joint neural decoding
                     if cross_channel_corr > 0.95:
                         c_score = 0.60 + 0.35 * ((cross_channel_corr - 0.95) / 0.05)
                     elif cross_channel_corr > 0.88:
@@ -174,26 +181,17 @@ class AISyntheticAnalyzer:
                     else:
                         c_score = max(0.02, cross_channel_corr * 0.15)
 
-                    # b) Spectral roll-off deviation
                     slope_dev = abs(spectral_slope - 2.05)
                     s_score = min(0.35, max(0.0, (slope_dev - 0.35) * 0.5)) if slope_dev > 0.35 else 0.0
-
-                    # c) Autocorrelation score
                     a_score = min(0.30, max(0.0, (spatial_autocorr - 0.25) * 0.8)) if spatial_autocorr > 0.25 else 0.0
-
-                    # d) High-frequency periodic lattice peak score
                     p_score = 0.25 if hf_peak_count > 2500 and hf_peak_density > 0.4 else (0.10 if hf_peak_count > 1000 else 0.0)
-
-                    # e) Patch disparity
                     k_score = min(0.15, max(0.0, (patch_kurtosis - 5.0) * 0.02)) if patch_kurtosis > 5.0 else 0.0
 
                     raw_score = 0.45 * c_score + 0.20 * s_score + 0.15 * a_score + 0.12 * p_score + 0.08 * k_score
-                    # Calibration scaling
                     synthetic_score = min(0.96, max(0.04, raw_score * 1.5))
 
                 synthetic_pct = round(float(synthetic_score * 100.0), 1)
 
-                # Store both key aliases for 100% interoperability with evidence fusion
                 analytics["synthetic_likelihood_pct"] = synthetic_pct
                 analytics["synthetic_likelihood_index_percent"] = synthetic_pct
                 analytics["spectral_decay_slope"] = round(float(spectral_slope), 2)
@@ -203,7 +201,7 @@ class AISyntheticAnalyzer:
                 analytics["patch_kurtosis"] = round(float(patch_kurtosis), 2)
                 analytics["metadata_flagged"] = metadata_ai_found
 
-                # 6. Generate Visual Artifact: Patch-Level Synthetic Likelihood Heatmap
+                # Generate Visual Artifact
                 resized_map = cv2.resize(norm_patch_scores, (width, height), interpolation=cv2.INTER_CUBIC)
                 norm_vis = cv2.normalize(resized_map, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
                 colored_vis = cv2.applyColorMap(norm_vis, cv2.COLORMAP_MAGMA)
@@ -215,35 +213,40 @@ class AISyntheticAnalyzer:
                 artifacts["ai_synthetic_map"] = artifact_filename
 
                 observations.append(f"Synthetic Likelihood Index: {synthetic_pct}% (calibrated multi-feature residual model).")
-                observations.append(f"Fourier radial spectral decay slope: alpha={spectral_slope:.2f} (natural reference baseline: 1.85-2.25).")
+                observations.append(f"Fourier radial spectral decay slope: alpha={spectral_slope:.2f}.")
                 observations.append(f"Cross-channel noise residual correlation: {cross_channel_corr:.3f}.")
                 observations.append(f"Spatial noise residual autocorrelation: {spatial_autocorr:.3f}.")
-                if hf_peak_count > 500:
-                    observations.append(f"High-frequency periodic lattice peaks: {hf_peak_count} detected.")
-                if metadata_ai_found:
-                    observations.append(f"Explicit generative AI metadata confirmed in container ({meta_source}).")
 
-                if synthetic_score >= 0.70 or metadata_ai_found:
+                # Calibrated Decision
+                if synthetic_score >= 0.75 or metadata_ai_found:
                     indicator = "indicator_detected"
                     indicator_label = f"AI Generative / Synthetic Traces Detected ({synthetic_pct}%)"
+                    norm_status = DetectorStatus.POSITIVE.value
+                    confidence = 0.88
+                    strength = EvidenceStrength.STRONG.value
                     explanation = (
                         f"Elevated AI generative traces detected (Synthetic Likelihood Index: {synthetic_pct}%). "
                         f"Noise residual cross-channel correlation ({cross_channel_corr:.3f}), spatial autocorrelation ({spatial_autocorr:.3f}), "
                         f"and spectral roll-off (alpha={spectral_slope:.2f}) deviate significantly from physical optical sensor physics, "
-                        "exhibiting statistical signatures characteristic of latent diffusion synthesis (Midjourney, Stable Diffusion, DALL-E, FLUX) "
-                        "or generative upsampling."
+                        "exhibiting statistical signatures characteristic of latent diffusion synthesis or generative fill."
                     )
-                elif synthetic_score >= 0.40:
+                elif synthetic_score >= 0.45:
                     indicator = "inconclusive"
                     indicator_label = f"Inconclusive / Mixed Indicators ({synthetic_pct}%)"
+                    norm_status = DetectorStatus.INCONCLUSIVE.value
+                    confidence = 0.50
+                    strength = EvidenceStrength.LOW.value
                     explanation = (
                         f"Moderate synthetic likelihood score ({synthetic_pct}%). "
                         "Image exhibits partial spectral flattening or atypical noise correlation, but insufficient to conclusively distinguish "
-                        "between synthetic generation, digital rendering (e.g. software screenshot/vector export), and compression smoothing."
+                        "between synthetic generation, digital rendering, and heavy recompression smoothing."
                     )
                 else:
                     indicator = "no_indicator_detected"
                     indicator_label = f"No AI Generative Traces Detected ({synthetic_pct}%)"
+                    norm_status = DetectorStatus.NEGATIVE.value
+                    confidence = 0.85
+                    strength = EvidenceStrength.NONE.value
                     explanation = (
                         f"Low synthetic likelihood index ({synthetic_pct}%). "
                         f"Radial spectral decay (alpha={spectral_slope:.2f}) and noise residual correlations conform to standard "
@@ -252,7 +255,7 @@ class AISyntheticAnalyzer:
 
         except Exception as e:
             exec_time = round((time.perf_counter() - start_time) * 1000, 2)
-            return ScreeningTestResult(
+            res = ScreeningTestResult(
                 method=cls.METHOD_NAME,
                 version=cls.VERSION,
                 status="failed",
@@ -262,7 +265,20 @@ class AISyntheticAnalyzer:
                 explanation="AI generative classification encountered an unexpected processing error.",
                 limitations=limitations,
                 execution_time_ms=exec_time,
-            ), artifacts, analytics
+            )
+            d_res = DetectorResult(
+                detector_name=cls.METHOD_NAME,
+                detector_version=cls.VERSION,
+                status=DetectorStatus.ERROR.value,
+                score=0.0,
+                confidence=0.0,
+                evidence_strength=EvidenceStrength.NONE.value,
+                applicable=True,
+                technical_reason=str(e),
+                affected_regions=[],
+                execution_time_ms=exec_time,
+            )
+            return res, artifacts, analytics, d_res
 
         exec_time = round((time.perf_counter() - start_time) * 1000, 2)
         test_result = ScreeningTestResult(
@@ -275,5 +291,24 @@ class AISyntheticAnalyzer:
             explanation=explanation,
             limitations=limitations,
             execution_time_ms=exec_time,
+            score=round(synthetic_score, 3),
+            confidence=round(confidence, 3),
+            evidence_strength=strength,
+            normalized_status=norm_status,
+            affected_regions=affected_regions,
         )
-        return test_result, artifacts, analytics
+        detector_result = DetectorResult(
+            detector_name=cls.METHOD_NAME,
+            detector_version=cls.VERSION,
+            status=norm_status,
+            score=round(synthetic_score, 3),
+            confidence=round(confidence, 3),
+            evidence_strength=strength,
+            applicable=True,
+            technical_reason=explanation,
+            affected_regions=affected_regions,
+            execution_time_ms=exec_time,
+            observations=observations,
+            limitations=limitations,
+        )
+        return test_result, artifacts, analytics, detector_result

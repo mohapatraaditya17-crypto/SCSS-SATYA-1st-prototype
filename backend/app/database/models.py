@@ -34,6 +34,16 @@ class Examination(Base):
     status = Column(String(32), default="completed", nullable=False)  # completed, failed
     overall_assessment = Column(String(64), default="requires_human_review", nullable=False)
 
+    # SATYA v2 Decision Engine Fields
+    decision_assessment = Column(String(64), default="INCONCLUSIVE", nullable=True)  # LIKELY_AUTHENTIC, LIKELY_TAMPERED, INCONCLUSIVE
+    evidence_strength = Column(String(32), default="NONE", nullable=True)  # NONE, LOW, MODERATE, STRONG, VERY_STRONG
+    decision_confidence = Column(Integer, default=50, nullable=True)  # 0 to 100
+    decision_data = Column(JSON, default=dict, nullable=True)
+    detector_results = Column(JSON, default=list, nullable=True)
+    image_characterization = Column(JSON, default=dict, nullable=True)
+    model_versions = Column(JSON, default=dict, nullable=True)
+    detector_versions = Column(JSON, default=dict, nullable=True)
+
     # Human Review Fields
     human_review_status = Column(String(64), default="pending", nullable=False)
     reviewer_name = Column(String(128), nullable=True)
@@ -71,3 +81,29 @@ class ActivityEvent(Base):
     details = Column(JSON, default=dict, nullable=False)
 
     examination = relationship("Examination", back_populates="activity_events")
+
+
+class ModelVersionRecord(Base):
+    __tablename__ = "model_versions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    model_name = Column(String(64), nullable=False, index=True)
+    model_version = Column(String(32), nullable=False)
+    model_hash = Column(String(64), nullable=False)
+    training_dataset_version = Column(String(64), nullable=False)
+    threshold_profile = Column(String(64), nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    details = Column(JSON, default=dict, nullable=False)
+
+
+class DatasetVersionRecord(Base):
+    __tablename__ = "dataset_versions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    dataset_version = Column(String(64), nullable=False, unique=True, index=True)
+    specimens_count = Column(Integer, nullable=False)
+    authentic_count = Column(Integer, nullable=False)
+    tampered_count = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    manifest_hash = Column(String(64), nullable=False)
+    details = Column(JSON, default=dict, nullable=False)

@@ -29,7 +29,7 @@ import {
 } from 'recharts';
 
 import { api } from '../services/api';
-import type { ExaminationDetail, IntegrityCheckResult } from '../types/examination';
+import type { ExaminationDetail, IntegrityCheckResult, DetectorResult } from '../types/examination';
 import { IndicatorBadge, ReviewBadge } from '../components/StatusBadge';
 
 export const ExaminationResults: React.FC = () => {
@@ -45,7 +45,7 @@ export const ExaminationResults: React.FC = () => {
   const [copiedHash, setCopiedHash] = useState<boolean>(false);
 
   // Visual Laboratory Controls
-  const [activeVisTab, setActiveVisTab] = useState<'side_by_side' | 'noise' | 'fft' | 'copymove' | 'ai_synthetic' | 'typography' | 'blend' | 'channels'>('side_by_side');
+  const [activeVisTab, setActiveVisTab] = useState<'side_by_side' | 'noise' | 'fft' | 'copymove' | 'ai_synthetic' | 'typography' | 'blend' | 'channels' | 'composite'>('side_by_side');
   const [blendOpacity, setBlendOpacity] = useState<number>(60);
 
   // Human Review Form State
@@ -200,6 +200,17 @@ export const ExaminationResults: React.FC = () => {
   const aiImgUrl = aiArtifact ? api.getVisualizationUrl(exam.examination_id, 'ai_synthetic_map') : null;
   const typoArtifact = exam.artifacts?.typography_map;
   const typoImgUrl = typoArtifact ? api.getVisualizationUrl(exam.examination_id, 'typography_map') : null;
+  const compositeHeatmapArtifact = exam.artifacts?.composite_evidence_map;
+  const compositeHeatmapUrl = compositeHeatmapArtifact
+    ? api.getVisualizationUrl(exam.examination_id, 'composite_evidence_map')
+    : null;
+
+  // v2 decision fields
+  const decisionAssessment = exam.decision_assessment ?? null;
+  const evidenceStrength = exam.evidence_strength ?? null;
+  const decisionConfidence = exam.decision_confidence ?? null;
+  const detectorResults: DetectorResult[] = exam.detector_results ?? [];
+  const imageClass = exam.image_characterization?.image_class ?? null;
 
   return (
     <div className="space-y-6">
@@ -269,6 +280,154 @@ export const ExaminationResults: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* 2. v2 Decision Assessment Panel */}
+      {decisionAssessment && (
+        <div className={`rounded-xl border-2 shadow-xs p-5 ${
+          decisionAssessment === 'LIKELY_TAMPERED'
+            ? 'bg-rose-50 border-rose-300'
+            : decisionAssessment === 'LIKELY_AUTHENTIC'
+            ? 'bg-emerald-50 border-emerald-300'
+            : 'bg-amber-50 border-amber-300'
+        }`}>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            {/* Left: Decision + Strength */}
+            <div className="flex items-center gap-3">
+              <div className={`p-2.5 rounded-lg ${
+                decisionAssessment === 'LIKELY_TAMPERED' ? 'bg-rose-100' :
+                decisionAssessment === 'LIKELY_AUTHENTIC' ? 'bg-emerald-100' : 'bg-amber-100'
+              }`}>
+                {decisionAssessment === 'LIKELY_TAMPERED' ? (
+                  <AlertTriangle className="w-6 h-6 text-rose-600" />
+                ) : decisionAssessment === 'LIKELY_AUTHENTIC' ? (
+                  <Shield className="w-6 h-6 text-emerald-600" />
+                ) : (
+                  <Info className="w-6 h-6 text-amber-600" />
+                )}
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 mb-0.5">
+                  SATYA v2 — Multi-Evidence Decision Engine
+                </div>
+                <div className={`text-lg font-bold tracking-tight ${
+                  decisionAssessment === 'LIKELY_TAMPERED' ? 'text-rose-700' :
+                  decisionAssessment === 'LIKELY_AUTHENTIC' ? 'text-emerald-700' : 'text-amber-700'
+                }`}>
+                  {decisionAssessment === 'LIKELY_TAMPERED' && 'LIKELY TAMPERED'}
+                  {decisionAssessment === 'LIKELY_AUTHENTIC' && 'LIKELY AUTHENTIC'}
+                  {decisionAssessment === 'INCONCLUSIVE' && 'INCONCLUSIVE — Requires Expert Review'}
+                </div>
+              </div>
+            </div>
+
+            {/* Right: Strength + Confidence + Image Class chips */}
+            <div className="flex flex-wrap items-center gap-2">
+              {evidenceStrength && (
+                <span className={`inline-flex items-center text-xs font-semibold px-2.5 py-1 rounded-full border ${
+                  evidenceStrength === 'STRONG' ? 'bg-rose-100 text-rose-700 border-rose-200' :
+                  evidenceStrength === 'MODERATE' ? 'bg-amber-100 text-amber-700 border-amber-200' :
+                  evidenceStrength === 'WEAK' ? 'bg-slate-100 text-slate-600 border-slate-200' :
+                  'bg-emerald-100 text-emerald-700 border-emerald-200'
+                }`}>
+                  {evidenceStrength} EVIDENCE
+                </span>
+              )}
+              {decisionConfidence !== null && decisionConfidence !== undefined && (
+                <span className="inline-flex items-center text-xs font-mono font-semibold px-2.5 py-1 rounded-full bg-white border border-slate-200 text-slate-700">
+                  {(decisionConfidence * 100).toFixed(0)}% confidence
+                </span>
+              )}
+              {imageClass && (
+                <span className="inline-flex items-center text-xs font-semibold px-2.5 py-1 rounded-full bg-[#0F1E36]/10 text-[#0F1E36] border border-[#0F1E36]/20">
+                  {imageClass}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Composite Heatmap (if generated) */}
+          {compositeHeatmapUrl && (
+            <div className="mt-4 border-t border-current/10 pt-4 space-y-2">
+              <div className="text-xs font-semibold text-slate-700">
+                Composite Forensic Evidence Heatmap — Exhibit A (Multi-Detector Fusion)
+              </div>
+              <div className="max-h-48 bg-slate-950 rounded-lg border border-slate-300 flex items-center justify-center overflow-hidden">
+                <img
+                  src={compositeHeatmapUrl}
+                  alt="Composite Evidence Heatmap"
+                  className="max-h-full max-w-full object-contain"
+                />
+              </div>
+              <p className="text-[11px] text-slate-500">
+                Weighted superposition of spatial anomaly regions from all positive-firing detectors.
+                Brighter regions indicate convergence of multiple independent evidence families.
+              </p>
+            </div>
+          )}
+
+          {/* Detector Results Table */}
+          {detectorResults.length > 0 && (
+            <div className="mt-4 border-t border-current/10 pt-4">
+              <div className="text-xs font-semibold text-slate-700 mb-2">
+                Normalized Detector Status ({detectorResults.length} detectors)
+              </div>
+              <div className="overflow-x-auto rounded-lg border border-slate-200">
+                <table className="min-w-full divide-y divide-slate-200 text-xs">
+                  <thead className="bg-slate-50 text-[11px] text-slate-500 uppercase font-semibold">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Detector</th>
+                      <th className="px-3 py-2 text-left">Family</th>
+                      <th className="px-3 py-2 text-left">Status</th>
+                      <th className="px-3 py-2 text-left">Strength</th>
+                      <th className="px-3 py-2 text-left w-1/3">Technical Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 bg-white">
+                    {detectorResults.map((dr) => (
+                      <tr key={dr.detector_name} className="hover:bg-slate-50">
+                        <td className="px-3 py-2 font-mono text-slate-800 text-[11px]">
+                          {dr.detector_name.replace(/_/g, ' ')}
+                        </td>
+                        <td className="px-3 py-2 text-slate-500 text-[11px]">
+                          {dr.evidence_family}
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            dr.status === 'POSITIVE'
+                              ? 'bg-rose-100 text-rose-700'
+                              : dr.status === 'NEGATIVE'
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : dr.status === 'NOT_APPLICABLE'
+                              ? 'bg-slate-100 text-slate-400'
+                              : dr.status === 'ERROR'
+                              ? 'bg-orange-100 text-orange-700'
+                              : 'bg-amber-100 text-amber-700'
+                          }`}>
+                            {dr.status}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className={`text-[10px] font-semibold ${
+                            dr.evidence_strength === 'STRONG' ? 'text-rose-600' :
+                            dr.evidence_strength === 'MODERATE' ? 'text-amber-600' :
+                            dr.evidence_strength === 'WEAK' ? 'text-slate-500' :
+                            'text-slate-400'
+                          }`}>
+                            {dr.evidence_strength}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-slate-600 text-[11px] leading-snug">
+                          {dr.technical_reason}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Statutory Disclaimer Alert */}
       <div className="bg-amber-50/70 border-l-4 border-[#C5A059] p-3.5 rounded-r-lg text-xs text-amber-900 leading-relaxed flex items-start gap-2.5">
@@ -420,6 +579,16 @@ export const ExaminationResults: React.FC = () => {
                 }`}
               >
                 ELA Blend Overlay
+              </button>
+            )}
+            {compositeHeatmapUrl && (
+              <button
+                onClick={() => setActiveVisTab('composite')}
+                className={`px-3 py-1 rounded transition-colors ${
+                  activeVisTab === 'composite' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Composite Heatmap
               </button>
             )}
             <button
@@ -624,6 +793,28 @@ export const ExaminationResults: React.FC = () => {
             </div>
             <p className="text-center text-[11px] text-slate-500">
               Drag slider to correlate bright compression residual boundaries directly over physical objects in the image.
+            </p>
+          </div>
+        )}
+
+        {/* View C: Composite Multi-Detector Heatmap */}
+        {activeVisTab === 'composite' && compositeHeatmapUrl && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
+              <span>Composite Forensic Evidence Map (Multi-Detector Fusion)</span>
+              <span className="text-slate-400 font-mono">Weighted Spatial Anomaly Superposition</span>
+            </div>
+            <div className="aspect-video max-h-[500px] bg-slate-950 rounded-lg overflow-hidden border border-slate-300 flex items-center justify-center p-2 mx-auto">
+              <img
+                src={compositeHeatmapUrl}
+                alt="Composite Evidence Heatmap"
+                className="max-h-full max-w-full object-contain"
+              />
+            </div>
+            <p className="text-center text-[11px] text-slate-500">
+              Weighted superposition of spatial anomaly contributions from all positive-firing detectors.
+              Brighter regions reflect convergence of multiple independent evidence families at the same spatial location,
+              substantially increasing confidence of localised manipulation.
             </p>
           </div>
         )}

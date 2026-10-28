@@ -21,6 +21,8 @@ from app.schemas.examination import (
     DashboardStatsResponse,
     FileIntegrityInfo,
     ScreeningTestResult,
+    DetectorResult,
+    DecisionEngineOutput,
     ActivityEventResponse,
 )
 from app.services.storage import StorageService
@@ -34,6 +36,14 @@ router = APIRouter()
 
 def _format_examination_response(exam: Examination) -> ExaminationDetailResponse:
     tests = [ScreeningTestResult(**t) for t in (exam.test_results or [])]
+    detector_results = [DetectorResult(**d) for d in (exam.detector_results or [])]
+    decision_output = None
+    if exam.decision_data:
+        try:
+            decision_output = DecisionEngineOutput(**exam.decision_data)
+        except Exception:
+            pass
+
     activity = [
         ActivityEventResponse(
             id=ev.id,
@@ -66,6 +76,11 @@ def _format_examination_response(exam: Examination) -> ExaminationDetailResponse
         ),
         tests=tests,
         overall_assessment=exam.overall_assessment,
+        decision_assessment=exam.decision_assessment or "INCONCLUSIVE",
+        evidence_strength=exam.evidence_strength or "NONE",
+        decision_output=decision_output,
+        detector_results=detector_results,
+        image_characterization=exam.image_characterization or {},
         human_review_status=exam.human_review_status,
         human_review=HumanReviewResponse(
             status=exam.human_review_status,
@@ -166,9 +181,15 @@ async def create_examination(
 
         exam.status = "completed"
         exam.overall_assessment = pipeline_output["overall_assessment"]
+        exam.decision_assessment = pipeline_output.get("decision_assessment", "INCONCLUSIVE")
+        exam.evidence_strength = pipeline_output.get("evidence_strength", "NONE")
+        exam.decision_confidence = pipeline_output.get("decision_confidence", 50)
         exam.capture_timestamp = pipeline_output["capture_timestamp"]
         exam.extracted_metadata = pipeline_output["extracted_metadata"]
         exam.test_results = [t.model_dump() for t in pipeline_output["tests"]]
+        exam.detector_results = [d.model_dump() for d in pipeline_output.get("detector_results", [])]
+        exam.image_characterization = pipeline_output.get("image_characterization", {})
+        exam.decision_data = pipeline_output.get("canonical_evidence", {}).get("assessment", {})
         exam.known_limitations = pipeline_output["known_limitations"]
         exam.suggested_manual_checks = pipeline_output["suggested_manual_checks"]
         exam.artifacts = pipeline_output["artifacts"]
@@ -246,6 +267,8 @@ def list_examinations(
             color_mode=e.color_mode,
             status=e.status,
             overall_assessment=e.overall_assessment,
+            decision_assessment=e.decision_assessment or "INCONCLUSIVE",
+            evidence_strength=e.evidence_strength or "NONE",
             human_review_status=e.human_review_status,
         )
         for e in results
